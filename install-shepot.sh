@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Установка SHEPOT на Linux из исходников (с поддержкой GPU NVIDIA).
+# Готовые сборки для Windows / macOS / Linux — в GitHub Releases.
 set -euo pipefail
 
 VENV="$HOME/venvs/shepot"
@@ -18,16 +20,14 @@ sudo apt-get install -y wl-clipboard wtype || true
 echo "==> 2/6 python-окружение"
 [ -d "$VENV" ] || python3 -m venv "$VENV"
 "$VENV/bin/pip" install -q --upgrade pip
-"$VENV/bin/pip" install -q faster-whisper sounddevice numpy evdev
-"$VENV/bin/pip" install -q nvidia-cublas-cu12 "nvidia-cudnn-cu12==9.*"
 SITE="$("$VENV/bin/python3" -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"
-echo "/usr/lib/python3/dist-packages" > "$SITE/system-gi.pth"
+echo "/usr/lib/python3/dist-packages" > "$SITE/system-gi.pth"   # системный python3-gi (GTK)
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-echo "==> 3/6 демон с иконкой в трее"
-install -m 755 "$SCRIPT_DIR/shepot.py" "$BIN/shepot.py"
-install -m 755 "$SCRIPT_DIR/shepot_reader.py" "$BIN/shepot_reader.py"
+echo "==> 3/6 пакет shepot (+ cuBLAS/cuDNN для GPU)"
+"$VENV/bin/pip" install -q "$SCRIPT_DIR[gpu]"
+rm -f "$BIN/shepot.py" "$BIN/shepot_reader.py"   # старая раскладка (один файл в ~/bin)
 
 echo "==> 4/6 обёртка запуска"
 install -m 755 "$SCRIPT_DIR/shepot-run.sh" "$BIN/shepot-run.sh"

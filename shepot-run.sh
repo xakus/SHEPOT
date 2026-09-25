@@ -1,5 +1,7 @@
 #!/bin/bash
+# Запуск SHEPOT из venv (Linux, установка из исходников через install-shepot.sh).
+# LD_LIBRARY_PATH — чтобы ctranslate2 нашёл cuBLAS/cuDNN из pip-пакетов nvidia-*.
 source "$HOME/venvs/shepot/bin/activate"
 SITE=$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 export LD_LIBRARY_PATH="$(ls -d $SITE/nvidia/*/lib 2>/dev/null | paste -sd:)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec python3 "$HOME/bin/shepot.py"
+exec python3 -m shepot "$@"
