@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Логи и временные файлы
+*.log
+shepot-log.txt
+*.tmp
+
+# Сборка (PyInstaller, AppImage, установщики)
+build/
+dist/
+*.spec.bak
+*.egg-info/
+*.AppImage
+*.dmg
+packaging/icons/generated/
+
+# IDE
+.idea/
+.vscode/
