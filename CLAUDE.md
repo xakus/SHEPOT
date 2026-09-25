@@ -4,10 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Что это
 
-**SHEPOT** (от «шёпот» + Whisper) — push-to-talk диктовка на русском для Linux (Ubuntu/GNOME): фоновый демон держит
-faster-whisper (`large-v3`) в VRAM, по удержанию правого Ctrl пишет с микрофона,
-по отпусканию распознаёт речь и вставляет текст в позицию курсора. Иконка — в
-верхней панели GNOME (AppIndicator).
+**SHEPOT** (от «шёпот» + Whisper) — push-to-talk диктовка (faster-whisper) и чтение
+вслух (Piper) для **Linux, Windows и macOS**. Фоновая программа с иконкой в трее:
+по удержанию клавиши пишет с микрофона, по отпусканию распознаёт речь и вставляет
+текст в позицию курсора; по одиночному нажатию клавиши чтения читает выделенный текст.
 
 **Сначала читай `CONTEXT-shepot.md`** — там полное состояние проекта:
 что работает, что сломано, известные проблемы и ближайшие шаги. При значимых
@@ -15,68 +15,76 @@ faster-whisper (`large-v3`) в VRAM, по удержанию правого Ctrl
 
 Документ проекта — `docs/PROJECT.md` (что сделано + что планируется).
 Планы новых функций — в `docs/plans/<функция>/PLAN.md`; текущий:
-`docs/plans/tts-reading/PLAN.md` — чтение текста вслух по правому Alt
-(Piper TTS, AT-SPI + эмуляция клавиш). Перед реализацией — читать план,
-после каждого этапа — отмечать чекбоксы проверки.
+`docs/plans/cross-platform/PLAN.md` — Windows/macOS + сборка в GitHub Actions + релизы.
+Перед реализацией — читать план, после каждого этапа — отмечать чекбоксы проверки.
 
-## Важно: где живёт рабочий код
+Репозиторий: `git@github.com:xakus/SHEPOT.git`, ветка `main`.
 
-Файлы в этой папке — **исходники/копии**. Рабочие (задеплоенные) версии лежат в
-домашней директории и создаются установщиком `install-shepot.sh`:
+## Где живёт рабочий код (Linux, машина разработчика)
 
-- `~/bin/shepot.py` — рабочая копия демона (запускается именно она)
-- `~/bin/shepot-run.sh` — рабочая обёртка запуска
-- `~/venvs/shepot/` — venv (faster-whisper, sounddevice, numpy, evdev)
+Источник правды — пакет `src/shepot/`. Рабочая установка — venv `~/venvs/shepot/`
+(пакет ставится туда через pip) + обёртка `~/bin/shepot-run.sh`
+(выставляет `LD_LIBRARY_PATH` для cuBLAS/cuDNN и делает `python3 -m shepot`).
+После правки кода задеплой и перезапусти:
 
-Источник правды — файлы в этой папке: `install-shepot.sh` копирует `shepot.py` и
-`shepot-run.sh` отсюда в `~/bin/`. После правки кода задеплой рабочую копию:
-`install -m 755 shepot.py ~/bin/shepot.py` и перезапусти демон.
+```bash
+~/venvs/shepot/bin/pip install -q --no-deps . && install -m 755 shepot-run.sh ~/bin/
+pkill -f "python3 -m shepot$"; ~/bin/shepot-run.sh
+```
 
 ## Команды
 
 ```bash
-pkill -f shepot.py              # убить все копии демона (обязательно перед отладкой —
-                                # вторая копия отбирает микрофон и получает пустой поток)
+pkill -f "python3 -m shepot$"   # убить демон (обязательно перед отладкой — вторая
+                                # копия отбирает микрофон и получает пустой поток).
+                                # Не `pkill -f shepot` — убьёт и собственный shell.
 ~/bin/shepot-run.sh             # запуск с выводом в терминал
-bash install-shepot.sh          # полная установка/передеплой (apt + venv + файлы + ярлык)
-echo $XDG_SESSION_TYPE          # x11 или wayland — определяет способ вставки текста
-nvidia-smi                      # модель на GPU занимает ~2 GB
-systemctl --user status ydotoold
+bash install-shepot.sh          # полная установка на Linux (apt + venv + пакет[gpu] + ярлык)
+python -m pytest -q             # юнит-тесты (PYTHONPATH=src, нужен pytest)
+python -m shepot --selftest     # проверка без GUI: импорты, PortAudio, Piper, Whisper tiny
+python -m shepot.reader --say "текст"   # проверка чтения из терминала
+SHEPOT_PLATFORM=desktop python -m shepot  # трей Windows/macOS (pystray) на Linux — для отладки
+bash packaging/build_linux.sh   # сборка AppImage + tar.gz (SHEPOT_BUILD_NO_CUDA=1 — без CUDA)
 ```
 
-Тестов и линтера нет; проверка — ручной запуск `~/bin/shepot-run.sh` и диктовка.
+Меню трея на Linux можно проверять без мыши через D-Bus: процесс отдаёт
+`com.canonical.dbusmenu` по пути `/org/ayatana/NotificationItem/shepot/Menu`
+(`GetLayout` — прочитать, `Event <id> clicked` — нажать).
 
-## Архитектура shepot.py
+## Архитектура
 
-Один файл, два потока:
+Пакет `src/shepot/` = ядро (не зависит от ОС) + платформенный слой.
 
-- **Главный поток** — `Gtk.main()` + класс `Tray` (AppIndicator, меню: статус,
-  последняя фраза, чекбокс «Слушать», выход). Все обновления UI из фоновых
-  потоков — только через `GLib.idle_add` (обёрнуто в методы `Tray`).
-- **Фоновый `worker()`** — грузит и прогревает `WhisperModel`, находит клавиатуры
-  через evdev (`/dev/input/event*`, нужна группа `input`), крутит selectors-цикл:
-  нажатие → `Recorder.start()`, отпускание → `Recorder.stop()` → распознавание
-  и вставка в отдельном daemon-потоке.
-- `Recorder` — `sd.InputStream` открыт постоянно; кадры копятся между
-  `start()`/`pause()`. Длинная запись режется на чанки ~30 с по паузам в речи
-  (`find_split`, минимум RMS) и распознаётся параллельно с записью
-  (поток `pump` → очередь `jobs` → поток `transcriber`); при отпускании клавиши
-  дораспознаётся хвост, текст склеивается и вставляется целиком. Каждый чанк
-  сразу пишется в `~/shepot-log.txt`.
-- `make_typer()` — выбирает способ вставки по окружению: X11 → `xdotool type`;
-  Wayland → буфер (`wl-copy`) + `ydotool key` Ctrl+V; фолбэк — только буфер.
-- `ModelManager` + подменю «Модель» в трее: каталог моделей (faster-whisper +
-  HuggingFace API), автоскачивание с прогрессом, размеры, удаление, локальные
-  модели. Выбор хранится в `~/.config/shepot/config.json`. Смена модели —
-  задание `("switch", name)` в очереди `jobs`: транскрайбер один владеет
-  моделью, блокировок нет; при ошибке — откат на прежнюю модель.
-- Подменю «Устройство» (Авто / GPU / CPU): задание `("device", pref)` в
-  `jobs` → `do_device()` перезагружает модель; `load_model()` без GPU или
-  при ошибке CUDA откатывается на CPU (`int8`). Выбор — `config.json`, ключ `device`.
+- `app.py` — точка входа: создаёт трей платформы, `Reader`, `Dictation`;
+  `--selftest` (`selftest.py`) гоняется в CI на собранной программе.
+- `dictation.py` — **ядро диктовки**. `on_key(имя, значение)` получает события
+  клавиш от платформы (имена как в evdev: `KEY_RIGHTCTRL`…, прочие — `OTHER`).
+  Один поток-транскрайбер владеет моделью и разбирает очередь `jobs`:
+  `chunk` / `finish` / `switch` (модель) / `device` (Авто/GPU/CPU). `load_model()`
+  без GPU или при ошибке CUDA откатывается на CPU (`int8`).
+- `audio.py` — `Recorder` (`sd.InputStream` открыт постоянно; длинная запись
+  режется на чанки ~30 с по паузам, `find_split`), `Session`, лог чанков.
+- `models.py` — `ModelManager`: каталог моделей, размеры, скачивание, удаление.
+- `reader.py` — чтение вслух: `VoiceManager`, `PiperEngine`/`EspeakEngine`,
+  конвейер синтез → очередь → плеер. Источники текста ему даёт платформа.
+- `ui_base.py` — `TrayBase`: общее состояние трея (включено, клавиши, устройство)
+  и правила. Отрисовка — у платформ. `call_soon()` — выполнить в потоке UI.
+- `platforms/linux.py` — `GtkTray` (AppIndicator, `GLib.idle_add`), evdev,
+  `make_typer()` (X11 → xdotool; Wayland → wl-copy + ydotool Ctrl+V).
+  `platforms/linux_sources.py` — AT-SPI и клавиши+буфер для чтения.
+- `platforms/desktop.py` — Windows и macOS: `PystrayTray` (меню перестраивается
+  целиком; на Mac всё UI — через `AppHelper.callAfter`), pynput (хук клавиш,
+  Ctrl/Cmd+V по виртуальному коду — не зависит от раскладки), pyperclip.
+- `paths.py` — пути по ОС (Linux — прежние `~/.config/shepot` и т.д.),
+  `gpu.py` — DLL cuBLAS/cuDNN на Windows (`os.add_dll_directory`).
 
-Конфигурация — только через переменные окружения `SHEPOT_*` (ключ, модель, язык,
-compute type, устройство, initial prompt, микрофон и т.д.) — полная таблица в
-`CONTEXT-shepot.md`, раздел 3.
+Сборка: `packaging/shepot.spec` (PyInstaller, один на все ОС),
+`packaging/build_{linux.sh,macos.sh,windows.ps1}`, `.github/workflows/build.yml`
+(push → тесты + сборка 4 целей + selftest; тег `vX.Y.Z` → GitHub Release).
+Версия — `src/shepot/__init__.py`, тег должен совпадать.
+
+Конфигурация — переменные окружения `SHEPOT_*` (значения по умолчанию) +
+`config.json` (выбор из меню, важнее) — таблица в `CONTEXT-shepot.md`, раздел 3.
 
 ## Жёсткие ограничения железа (не менять бездумно)
 

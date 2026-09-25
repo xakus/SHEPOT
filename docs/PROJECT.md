@@ -1,6 +1,6 @@
 # SHEPOT — документ проекта
 
-Последнее обновление: 2026-09-25 (переименование в SHEPOT).
+Последнее обновление: 2026-09-25 (Windows / macOS, сборка в GitHub Actions, релизы).
 
 Что это за программа, что в ней уже сделано и какая функция добавляется
 следующей. Технические детали текущего состояния (что сломано, обходные
@@ -60,22 +60,28 @@
 ### 2.2. Файлы
 
 ```
-shepot/                      ← исходники (источник правды)
-├── shepot.py                   демон: трей + распознавание (один файл, ~740 строк)
-├── shepot-run.sh                    обёртка: venv + LD_LIBRARY_PATH для CUDA
-├── install-shepot.sh                установщик; копирует файлы в ~/bin
-├── CLAUDE.md                     инструкции для Claude Code
-├── CONTEXT-shepot.md        техническое состояние: проблемы, обходы, команды
+SHEPOT/                        ← репозиторий github.com/xakus/SHEPOT (источник правды)
+├── src/shepot/                  пакет: ядро + platforms/ (linux, desktop = Windows/macOS)
+├── tests/                       юнит-тесты (pytest)
+├── packaging/                   PyInstaller (shepot.spec), Inno Setup, AppImage, dmg, скрипты сборки
+├── .github/workflows/build.yml  CI: тесты + сборка 4 целей + selftest; тег v* → Release
+├── pyproject.toml               зависимости по ОС, extra [gpu]
+├── install-shepot.sh            установка на Linux из исходников (venv + пакет[gpu] + ярлык)
+├── shepot-run.sh                обёртка: venv + LD_LIBRARY_PATH для CUDA → python3 -m shepot
+├── README.md                    для пользователей: скачать, установить, клавиши
+├── CLAUDE.md, CONTEXT-shepot.md
 └── docs/
-    ├── PROJECT.md                этот документ
-    └── plans/tts-reading/PLAN.md план функции чтения
+    ├── PROJECT.md                           этот документ
+    └── plans/{tts-reading,cross-platform}/  планы функций
 
-~/bin/shepot.py, ~/bin/shepot-run.sh   ← рабочие копии (запускаются они)
-~/venvs/shepot/                          venv: faster-whisper, sounddevice, numpy, evdev
-~/.config/shepot/config.json     выбранная модель, локальные модели
-~/.cache/huggingface/hub/             веса моделей Whisper (large-v3 ≈ 3 ГБ)
-~/shepot-log.txt                         лог распознанного текста
+Linux (машина разработчика):
+~/venvs/shepot/                  venv с установленным пакетом shepot
+~/bin/shepot-run.sh              рабочая обёртка запуска
+~/.config/shepot/config.json     выбор модели, устройства, клавиш, голоса
+~/.cache/huggingface/hub/        веса моделей Whisper (large-v3 ≈ 3 ГБ)
+~/shepot-log.txt                 лог распознанного текста
 ```
+Пути на Windows и macOS — в README.md («Где что лежит»).
 
 ### 2.3. Архитектура
 
@@ -121,6 +127,20 @@ GPU — GTX 1080 Ti (Pascal, sm_61): только `int8`, CUDA 12.x + cuDNN 9,
   история — `CONTEXT-shepot.md`, раздел 6.
 - Две копии демона делят микрофон — перед отладкой `pkill -f shepot.py`.
 - Bluetooth-гарнитура: микрофон только в профиле HSP/HFP (плохой звук).
+
+### 2.7. Windows и macOS (2026-09-25)
+
+- Одна кодовая база, платформенный слой `src/shepot/platforms/`:
+  Linux — evdev + GTK/AppIndicator (как раньше); Windows и macOS — pynput
+  (глобальные клавиши, Ctrl/Cmd+V), pystray (трей), pyperclip (буфер).
+- Чтение вслух на Windows/macOS — выделенный текст через Ctrl+C / Cmd+C
+  с возвратом прежнего буфера; «от курсора до конца» — только Linux (AT-SPI).
+- GPU: Windows и Linux-сборки несут cuBLAS + cuDNN и переключаются
+  Авто / GPU / CPU из меню; macOS — только CPU.
+- Сборка: PyInstaller в GitHub Actions → Windows `Setup.exe` (Inno Setup) + zip,
+  macOS `.dmg` (arm64 и x64, ad-hoc подпись), Linux AppImage + tar.gz.
+  Каждая сборка проходит `--selftest` в CI. Релиз — тег `vX.Y.Z`.
+- Подробности и чек-лист проверки — `docs/plans/cross-platform/PLAN.md`.
 
 ---
 

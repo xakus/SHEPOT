@@ -21,3 +21,6 @@ packaging/icons/generated/
 # IDE
 .idea/
 .vscode/
+
+# Готовые файлы сборки
+release/

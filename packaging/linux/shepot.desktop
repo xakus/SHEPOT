@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=SHEPOT
+Comment=Диктовка и чтение вслух (push-to-talk)
+Exec=SHEPOT
+Icon=shepot
+Terminal=false
+StartupNotify=false
+Categories=Utility;AudioVideo;

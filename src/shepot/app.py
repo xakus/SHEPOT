@@ -50,6 +50,23 @@ def _fix_stdio():
                 pass
 
 
+def _patch_portaudio():
+    """Собранная версия под Linux: sounddevice ищет PortAudio через
+    ctypes.util.find_library, а тот смотрит только системные библиотеки.
+    Если PortAudio лежит внутри сборки — подсказываем путь к нему."""
+    if not (sys.platform.startswith("linux") and getattr(sys, "frozen", False)):
+        return
+    bundled = os.path.join(getattr(sys, "_MEIPASS", ""), "libportaudio.so.2")
+    if not os.path.isfile(bundled):
+        return
+    import ctypes.util
+    orig = ctypes.util.find_library
+
+    def find_library(name):
+        return bundled if name == "portaudio" else orig(name)
+    ctypes.util.find_library = find_library
+
+
 def _make_reader(plat, config, ui):
     """Создать Reader с источниками текста платформы; нет модуля/ошибка — None.
 
@@ -105,6 +122,7 @@ def run_gui():
 
 def main(argv=None):
     _fix_stdio()
+    _patch_portaudio()
     ap = argparse.ArgumentParser(prog="shepot", description="SHEPOT — диктовка и чтение вслух")
     ap.add_argument("--selftest", action="store_true",
                     help="проверить сборку без GUI (импорты, модель tiny на CPU, резка текста)")

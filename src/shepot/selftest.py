@@ -70,7 +70,14 @@ def _piper():
 
 
 def _sound():
-    import sounddevice as sd
+    """Библиотека PortAudio должна загрузиться. Звукового сервера/устройств
+    может не быть (CI) — тогда PortAudio не инициализируется, это не ошибка сборки."""
+    try:
+        import sounddevice as sd
+    except Exception as e:             # PortAudioError не наследует OSError
+        if "Error initializing PortAudio" in str(e):
+            return f"библиотека есть, звуковой системы нет: {e}"
+        raise
     return f"PortAudio {sd.get_portaudio_version()[1]}"
 
 

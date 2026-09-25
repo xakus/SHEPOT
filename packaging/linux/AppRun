@@ -1,0 +1,9 @@
+#!/bin/sh
+# Запуск SHEPOT из AppImage (и из распакованного tar.gz).
+# LD_LIBRARY_PATH — чтобы ctranslate2 нашёл cuBLAS/cuDNN, лежащие внутри сборки.
+HERE="$(dirname "$(readlink -f "$0")")"
+APP="$HERE/usr/lib/shepot"
+[ -x "$APP/SHEPOT" ] || APP="$HERE"          # tar.gz: скрипт лежит рядом с программой
+CUDA_LIBS="$(ls -d "$APP"/_internal/nvidia/*/lib 2>/dev/null | tr '\n' ':')"
+export LD_LIBRARY_PATH="${CUDA_LIBS}${LD_LIBRARY_PATH:-}"
+exec "$APP/SHEPOT" "$@"

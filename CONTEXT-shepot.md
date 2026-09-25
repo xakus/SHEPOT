@@ -6,6 +6,14 @@
 > 2026-09-25: проект переименован из `ptt-whisper` в **SHEPOT**. Файлы, пути
 > (`~/bin/shepot*`, `~/venvs/shepot`, `~/.config/shepot`, `~/.local/share/shepot`,
 > `~/shepot-log.txt`) и переменные окружения (`PTT_*` → `SHEPOT_*`) — новые.
+>
+> 2026-09-25: **кроссплатформенность.** Код перенесён в пакет `src/shepot/`
+> (ядро + платформы: Linux — evdev/GTK, Windows и macOS — pynput/pystray),
+> репозиторий `github.com/xakus/SHEPOT`, сборка PyInstaller в GitHub Actions
+> на 4 цели (Windows x64 с CUDA, Linux x86_64 с CUDA, macOS arm64/x64 — CPU),
+> релизы по тегу `vX.Y.Z`. План — `docs/plans/cross-platform/PLAN.md`.
+> На Linux-машине разработчика демон теперь `python3 -m shepot` из venv
+> (`~/bin/shepot.py` больше не используется).
 
 ---
 
@@ -43,11 +51,11 @@
 ## 3. Где что лежит
 
 ```
-~/venvs/shepot/                              venv (faster-whisper, sounddevice, numpy, evdev)
-~/bin/shepot.py                         основной демон с иконкой в трее  ← главный файл
-~/bin/shepot-run.sh                          обёртка: активирует venv, ставит LD_LIBRARY_PATH
+~/Documents/projects/SHEPOT/src/shepot/    исходники пакета  ← источник правды
+~/venvs/shepot/                              venv: пакет shepot + faster-whisper, piper, nvidia-*
+~/bin/shepot-run.sh                          обёртка: активирует venv, ставит LD_LIBRARY_PATH, python3 -m shepot
 ~/bin/ptt-whisper.py                      ранняя консольная версия без трея (рабочая)
-~/install-shepot.sh                          установщик, который всё это создал
+install-shepot.sh (в проекте)                установщик для Linux из исходников
 ~/.local/share/applications/shepot.desktop   ярлык в меню приложений
 ~/.config/autostart/shepot.desktop   автозапуск — УДАЛЁН на время отладки
 ~/.config/systemd/user/ydotoold.service   юнит для ydotoold (в пакете Ubuntu его нет)
@@ -61,13 +69,15 @@
 source "$HOME/venvs/shepot/bin/activate"
 SITE=$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
 export LD_LIBRARY_PATH="$(ls -d $SITE/nvidia/*/lib 2>/dev/null | paste -sd:)${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-exec python3 "$HOME/bin/shepot.py"
+exec python3 -m shepot "$@"
 ```
 
-### Переменные окружения shepot.py
+### Переменные окружения
 | Переменная | По умолчанию | Назначение |
 |---|---|---|
-| `SHEPOT_KEY` | `KEY_RIGHTCTRL` | клавиша push-to-talk |
+| `SHEPOT_KEY` | `KEY_RIGHTCTRL` (Mac: `KEY_RIGHTALT` = правый Option) | клавиша push-to-talk; меню трея важнее |
+| `SHEPOT_TTS_KEY` | Linux `KEY_RIGHTALT`, Windows `KEY_RIGHTSHIFT`, Mac `KEY_RIGHTMETA` (правый Cmd) | клавиша чтения; меню трея важнее |
+| `SHEPOT_PLATFORM` | — | `desktop` — трей Windows/macOS (pystray) на Linux, для отладки |
 | `SHEPOT_MODEL` | `large-v3` | размер модели |
 | `SHEPOT_LANG` | `ru` | язык, пусто = автоопределение |
 | `SHEPOT_COMPUTE` | `int8` | тип вычислений (для Pascal только int8) |
@@ -76,7 +86,7 @@ exec python3 "$HOME/bin/shepot.py"
 | `SHEPOT_PASTE` | `29:1 47:1 47:0 29:0` | скан-коды Ctrl+V для ydotool |
 | `SHEPOT_CLIPBOARD_ONLY` | — | если задана, только копирование без вставки |
 | `SHEPOT_CHUNK` | `30` | макс. длина чанка при стриминговом распознавании, сек |
-| `SHEPOT_LOG` | `~/shepot-log.txt` | лог распознанных чанков (страховка от потери) |
+| `SHEPOT_LOG` | Linux `~/shepot-log.txt`, иначе в папке данных | лог распознанных чанков (страховка от потери) |
 | `SHEPOT_MODEL` | `large-v3` | модель по умолчанию; выбор из меню трея имеет приоритет |
 
 ### Менеджер моделей в трее (добавлен 2026-08-22)
@@ -98,7 +108,7 @@ exec python3 "$HOME/bin/shepot.py"
 
 ---
 
-## 4. Архитектура shepot.py
+## 4. Архитектура (исторически — shepot.py; актуальная раскладка пакета — в CLAUDE.md)
 
 ```
 Gtk.main() в главном потоке  →  AppIndicator (иконка в панели)
@@ -200,7 +210,7 @@ SHEPOT_PROMPT="Проект SHAD, GÜVƏN, Flutter, Vue.js, Spring Boot, Docker 
 прибить через `sd.InputStream(device=N)`; номера смотреть в `sd.query_devices()`.
 
 **Несколько копий демона.** Автозапуск + ручной запуск конкурируют за микрофон,
-вторая копия получает пустой поток. Перед отладкой всегда: `pkill -f shepot.py`.
+вторая копия получает пустой поток. Перед отладкой всегда: `pkill -f "python3 -m shepot$"`.
 
 **Репозиторий k6** ломает `apt-get update` (`NO_PUBKEY C780D0BDB1A69C86`).
 Не связано с проектом, но валит установщик из-за `set -e`.
@@ -216,19 +226,21 @@ SHEPOT_PROMPT="Проект SHAD, GÜVƏN, Flutter, Vue.js, Spring Boot, Docker 
 5. Прописать `SHEPOT_PROMPT` с рабочими терминами в `.desktop` через `Exec=env SHEPOT_PROMPT=... ...`.
 6. **Чтение текста вслух (TTS)** по правому Alt — план согласован 2026-09-14,
    см. `docs/plans/tts-reading/PLAN.md` (Piper на CPU, AT-SPI → клавиши+буфер,
-   новый модуль `shepot_reader.py`, диктовка не меняется).
+   новый модуль `shepot_reader.py`, диктовка не меняется). — СДЕЛАНО, теперь `src/shepot/reader.py`.
+7. **Windows / macOS + GitHub Actions + релизы** — 2026-09-25, см.
+   `docs/plans/cross-platform/PLAN.md`. Код и CI готовы; нужна ручная проверка
+   на настоящих Windows и Mac (клавиши, трей, вставка, чтение, разрешения macOS).
 
-Также 2026-08-22: `install-shepot.sh` больше не содержит встроенных (heredoc) копий
-`shepot.py` и `shepot-run.sh` — он копирует их из папки проекта
-(`~/Documents/projects/shepot/`). Источник правды — файлы проекта.
+`install-shepot.sh` ставит пакет из папки проекта в venv (`pip install ".[gpu]"`)
+и копирует `shepot-run.sh` в `~/bin`. Источник правды — файлы проекта.
 
 ---
 
 ## 9. Полезные команды
 
 ```bash
-pkill -f shepot.py                       # убить все копии
-pgrep -af shepot.py                      # проверить, что не осталось
+pkill -f "python3 -m shepot$"            # убить все копии (не `pkill -f shepot` — заденет shell)
+pgrep -af "python3 -m shepot"            # проверить, что не осталось
 ~/bin/shepot-run.sh                           # запуск с выводом в терминал
 echo $XDG_SESSION_TYPE                     # x11 или wayland
 systemctl --user status ydotoold           # состояние демона ydotool

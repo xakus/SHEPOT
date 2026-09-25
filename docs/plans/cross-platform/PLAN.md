@@ -55,8 +55,7 @@ SHEPOT/
 │   ├── macos/               Info.plist (описания разрешений), иконка .icns
 │   └── linux/               .desktop, иконка, AppImage-рецепт
 ├── .github/workflows/
-│   ├── build.yml            push/PR: сборка + smoke-тест на 3 ОС
-│   └── release.yml          тег v*: сборка + загрузка файлов в Release
+│   └── build.yml            push/PR: тесты + сборка + selftest на 3 ОС; тег v* → Release
 ├── install-shepot.sh        остаётся для Linux (режим с GPU из исходников)
 ├── pyproject.toml           зависимости по ОС (environment markers)
 └── .gitignore
@@ -80,26 +79,30 @@ SHEPOT/
   - Windows: `SHEPOT-Setup-X.Y.Z.exe` (Inno Setup) + `SHEPOT-X.Y.Z-windows.zip`;
   - macOS: `SHEPOT-X.Y.Z-macos-arm64.dmg`, `SHEPOT-X.Y.Z-macos-x64.dmg`;
   - Linux: `SHEPOT-X.Y.Z-linux-x86_64.AppImage` (+ `install-shepot.sh` для GPU).
-- `build.yml` — на каждый push: сборка + smoke-тест (запуск
-  `shepot --selftest`: импорты, загрузка модели `tiny` на CPU, распознавание
-  секунды тишины, выход без GUI).
-- `release.yml` — на тег `v*`: всё то же + `softprops/action-gh-release`
-  прикладывает файлы к релизу.
+- `build.yml` — на каждый push: юнит-тесты на 3 ОС, сборка 4 целей
+  (linux-x86_64, windows-x64, macos-arm64, macos-x64) + smoke-тест
+  `shepot --selftest` на собранной программе (импорты, PortAudio, Piper,
+  модель `tiny` на CPU). На тег `v*` — ещё job `release`: проверка, что тег
+  совпадает с `__version__`, и `softprops/action-gh-release` с файлами.
+  (Изначально планировалось два файла build/release — объединено в один.)
 
 ## 5. Этапы
 
-1. **Git + GitHub**: `git init`, `.gitignore`, первый коммит, remote, push.
-2. **Рефакторинг в пакет** `src/shepot/` (ядро + linux-платформа), поведение
+1. [x] **Git + GitHub**: `git init`, `.gitignore`, первый коммит, remote, push.
+2. [x] **Рефакторинг в пакет** `src/shepot/` (ядро + linux-платформа), поведение
    на Linux не меняется. Проверка: диктовка, чтение, меню как раньше.
-3. **Режим `--selftest`** + `build.yml` только под Linux, чтобы CI заработал.
-4. **Windows-платформа** + сборка в CI + ручная проверка на Windows.
-5. **macOS-платформа** + разрешения + сборка в CI.
-6. **Упаковка**: установщик, dmg, AppImage; `release.yml`; первый релиз `v0.1.0`.
-7. Документация: README (установка под каждую ОС), `PROJECT.md`, `CONTEXT-shepot.md`.
+3. [x] **Режим `--selftest`** + `build.yml`.
+4. [~] **Windows-платформа** — код и сборка в CI готовы; ручная проверка на Windows — за разработчиком.
+5. [~] **macOS-платформа** + разрешения — код и сборка готовы; ручная проверка на Mac — за разработчиком.
+6. [~] **Упаковка**: установщик, dmg, AppImage — готово; первый релиз `v0.1.0` — после зелёного CI.
+7. [x] Документация: README (установка под каждую ОС), `PROJECT.md`, `CONTEXT-shepot.md`, `CLAUDE.md`.
 
 ## 6. Критерии проверки
 
-- [ ] Linux: после рефакторинга диктовка, чтение, меню, смена модели и устройства работают как раньше.
+- [x] Linux: после рефакторинга демон стартует, меню, смена устройства (D-Bus клики), чтение `--say` работают (2026-09-25). Живую диктовку клавишей — проверить руками.
+- [x] Трей Windows/macOS (pystray) на Linux (`SHEPOT_PLATFORM=desktop`): меню строится, клики «CPU», «Слушать», «1.5×» работают и сохраняются.
+- [x] Локальная сборка Linux (без CUDA): PyInstaller → AppImage + tar.gz, `--selftest` OK, трей из сборки работает, откат GPU→CPU при отсутствии cuBLAS.
+- [x] Юнит-тесты: 17 шт. (логика клавиш диктовки/чтения, трей, конфиг, нарезка).
 - [ ] CI зелёный на трёх ОС, smoke-тест проходит.
 - [ ] Тег `v0.1.0` создаёт Release с файлами для трёх ОС.
 - [ ] Windows: скачал, установил, удержал клавишу, текст вставился в Блокнот; чтение работает.
