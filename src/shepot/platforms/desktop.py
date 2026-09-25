@@ -223,6 +223,8 @@ class PystrayTray(TrayBase):
         self.reading = False
         self.images = {s: draw_icon(s, 64) for s in ICON_STATES}
         self.ic = pystray.Icon("shepot", self.images["load"], "SHEPOT", menu=self._build())
+        self._menu_dirty = False      # Windows: меню устарело, пересобрать перед показом
+        self._lazy_menu = IS_WIN and self._install_win_lazy_menu()
 
     # -- потоки --
 
@@ -233,15 +235,40 @@ class PystrayTray(TrayBase):
         else:
             fn(*args)
 
+    def _install_win_lazy_menu(self):
+        """Windows: pystray удаляет и создаёт меню прямо в вызывающем потоке —
+        если в этот момент меню открыто (обновился процент скачивания), это
+        гонка. Поэтому меню пересобирается только в потоке pystray, перед
+        показом по правому клику. Обработчик сообщений — внутренний API
+        pystray; не получилось — работаем по-старому."""
+        try:
+            from pystray._util import win32
+            handlers = self.ic._message_handlers
+            orig = handlers[win32.WM_NOTIFY]
+
+            def on_notify(wparam, lparam):
+                if lparam == win32.WM_RBUTTONUP and self._menu_dirty:
+                    self._menu_dirty = False
+                    self.ic.menu = self._build()     # сеттер сам пересоздаёт меню
+                return orig(wparam, lparam)
+            handlers[win32.WM_NOTIFY] = on_notify
+            return True
+        except Exception as e:
+            print("ленивое меню pystray недоступно:", e, flush=True)
+            return False
+
     def _refresh(self):
         """Перестроить меню и подсказку (из любого потока)."""
         self.call_soon(self._apply)
 
     def _apply(self):
-        self.ic.menu = self._build()
-        self.ic.title = f"SHEPOT — {self.status_text}"
+        # подсказка при наведении; в Windows не длиннее 127 символов (szTip)
+        self.ic.title = f"SHEPOT — {self.status_text}"[:120]
+        if self._lazy_menu:
+            self._menu_dirty = True
+            return
         try:
-            self.ic.update_menu()
+            self.ic.menu = self._build()                 # сеттер сам вызывает update_menu
         except Exception:
             pass   # иконка ещё не показана — меню применится при показе
 

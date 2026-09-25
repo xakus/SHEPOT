@@ -108,6 +108,16 @@ jobs:
         if: runner.os == 'macOS'
         run: dist/SHEPOT.app/Contents/MacOS/SHEPOT --selftest
 
+      - name: размер файлов (лимит GitHub Release — 2 ГБ на файл)
+        shell: bash
+        run: |
+          ls -l release
+          for f in release/*; do
+            size=$(wc -c < "$f")
+            echo "$(basename "$f"): $((size / 1048576)) МБ"
+            if [ "$size" -ge 2000000000 ]; then echo "::error::$f больше 2 ГБ"; exit 1; fi
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: SHEPOT-${{ matrix.target }}
